@@ -11,7 +11,7 @@
       "controller": "did:web:emma10336.github.io",
       "publicKeyJwk": {
         "crv": "Ed25519",
-        "x": "meneK3ydh4OjZNjaQrMCtoQlWtJAaZ8sedERpNpGcko",
+        "x": "r_Sxe8icz7ildsuP0q1rlFWQSQYRgNITUmXdMWiKazs",
         "kty": "OKP",
         "alg": "EdDSA",
         "kid": "key-1"
