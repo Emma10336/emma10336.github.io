@@ -1,0 +1,24 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/did/v1",
+    "https://w3id.org/security/suites/jws-2020/v1"
+  ],
+  "id": "did:web:emma10336.github.io",
+  "verificationMethod": [
+    {
+      "id": "did:web:emma10336.github.io#key-1",
+      "type": "JsonWebKey2020",
+      "controller": "did:web:emma10336.github.io",
+      "publicKeyJwk": {
+        "crv": "Ed25519",
+        "x": "og4goPr_9w_ftEw2skyOMbOps55xFHL1jgDvdMLLiIQ",
+        "kty": "OKP",
+        "alg": "EdDSA",
+        "kid": "key-1"
+      }
+    }
+  ],
+  "assertionMethod": [
+    "did:web:emma10336.github.io#key-1"
+  ]
+}
