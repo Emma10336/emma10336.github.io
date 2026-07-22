@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+<!--
+  OBv3 Credential Verifier — Phase 6 demo
+  Hosted at:  https://emma10336.github.io/demo/
+  Source:     https://github.com/Emma10336/obv3-spike
+
+  Self-contained: inline CSS and JS, no build step, no framework.
+  One external dependency: jose@5 from jsDelivr, loaded as a browser ES module.
+  Credential files (credential.jwt, credential-forged.jwt) are managed by the
+  postissue npm hook in the spike repo — do not edit them by hand.
+-->
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OBv3 Credential Verifier</title>
+  <style>
+    /* ── Design tokens ─────────────────────────────────────────────────────
+       Warm off-white ground — chosen for the certificate/document context.
+       VALID: deep forest green. INVALID: deep red.
+       Verdict rendered as a classification stamp (spaced uppercase),
+       not a pill badge.
+    ────────────────────────────────────────────────────────────────────── */
+    :root {
+      --font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      --max-w: 560px;
+
+      --bg:      #F7F5F2;
+      --surface: #FFFFFF;
+      --border:  #E6E1DA;
+      --text:    #18150F;
+      --muted:   #78716A;
+      --link:    #2D5FA6;
+
+      --green:        #1A6B3C;
+      --green-subtle: #EFF7F3;
+      --green-border: #9DCCB5;
+
+      --red:        #B91C1C;
+      --red-subtle: #FDF1F1;
+      --red-border: #F4AAAA;
+
+      --t: 0.2s ease;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:      #131110;
+        --surface: #1D1B19;
+        --border:  #2C2926;
+        --text:    #F0EDE8;
+        --muted:   #8C8480;
+        --link:    #6B9FD4;
+
+        --green-subtle: #0A2018;
+        --green-border: #1F5535;
+        --red-subtle:   #200A0A;
+        --red-border:   #4A1919;
+      }
+    }
+
+    :root[data-theme="light"] {
+      --bg: #F7F5F2; --surface: #FFFFFF; --border: #E6E1DA;
+      --text: #18150F; --muted: #78716A; --link: #2D5FA6;
+      --green-subtle: #EFF7F3; --green-border: #9DCCB5;
+      --red-subtle: #FDF1F1; --red-border: #F4AAAA;
+    }
+
+    :root[data-theme="dark"] {
+      --bg: #131110; --surface: #1D1B19; --border: #2C2926;
+      --text: #F0EDE8; --muted: #8C8480; --link: #6B9FD4;
+      --green-subtle: #0A2018; --green-border: #1F5535;
+      --red-subtle: #200A0A; --red-border: #4A1919;
+    }
+
+    /* ── Reset ─────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Base ──────────────────────────────────────────────────────────── */
+    body {
+      font-family: var(--font);
+      font-size: 1rem;
+      line-height: 1.65;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 3rem 1.25rem 4rem;
+    }
+
+    main { max-width: var(--max-w); margin: 0 auto; }
+
+    /* ── Page header ────────────────────────────────────────────────────── */
+    .page-header { margin-bottom: 2.5rem; }
+
+    .page-header h1 {
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    .page-header p {
+      margin-top: 0.2rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    /* ── Credential card ────────────────────────────────────────────────── */
+    /* The 4px left stripe transitions green/red after verification, visually
+       tying the card state to the verdict below it. */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--border);
+      border-radius: 2px;
+      padding: 1.5rem 1.75rem;
+      margin-bottom: 0.75rem;
+      transition: border-left-color var(--t);
+    }
+
+    .card.is-valid   { border-left-color: var(--green); }
+    .card.is-invalid { border-left-color: var(--red); }
+
+    .card-eyebrow {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.6rem;
+    }
+
+    .card-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      line-height: 1.3;
+      margin-bottom: 1.25rem;
+      text-wrap: balance;
+    }
+
+    .card-fields {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 0.3rem 1.25rem;
+      font-size: 0.8rem;
+    }
+
+    .card-fields dt { color: var(--muted); }
+    .card-fields dd { font-weight: 500; }
+
+    .field-id {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      font-weight: 400;
+      color: var(--muted);
+      word-break: break-all;
+    }
+
+    /* ── Verdict ────────────────────────────────────────────────────────── */
+    /* Stamp treatment: wide letter-spacing, heavy weight, small caps size. */
+    .verdict-block {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.9rem 1.75rem;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      margin-bottom: 0.75rem;
+      transition: background var(--t), border-color var(--t), color var(--t);
+    }
+
+    .verdict-block.is-loading { background: var(--surface); color: var(--muted); }
+    .verdict-block.is-valid   { background: var(--green-subtle); border-color: var(--green-border); color: var(--green); }
+    .verdict-block.is-invalid { background: var(--red-subtle);   border-color: var(--red-border);   color: var(--red); }
+
+    .verdict-icon  { font-size: 1rem; line-height: 1; flex-shrink: 0; }
+    .verdict-stamp { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; }
+
+    /* ── Check list ─────────────────────────────────────────────────────── */
+    .checks-block {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 1.1rem 1.75rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .checks-heading {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.75rem;
+    }
+
+    .check-list { list-style: none; display: flex; flex-direction: column; gap: 0.4rem; }
+
+    .check-item { display: flex; gap: 0.65rem; align-items: baseline; font-size: 0.8rem; }
+
+    .check-mark        { flex-shrink: 0; font-size: 0.75rem; font-weight: 700; width: 0.9rem; }
+    .check-mark.pass   { color: var(--green); }
+    .check-mark.fail   { color: var(--red); }
+    .check-detail      { color: var(--muted); font-size: 0.75rem; }
+
+    /* ── Toggle button ──────────────────────────────────────────────────── */
+    /* Secondary action — restrained styling, not a prominent CTA. */
+    .forge-btn {
+      display: block;
+      width: 100%;
+      padding: 0.75rem 1.75rem;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      font-family: var(--font);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--muted);
+      cursor: pointer;
+      text-align: center;
+      margin-bottom: 3rem;
+      transition: color var(--t), border-color var(--t);
+    }
+
+    .forge-btn:hover         { color: var(--text); border-color: var(--muted); }
+    .forge-btn:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+
+    /* ── Footer ─────────────────────────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding-top: 1.25rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+      line-height: 1.75;
+    }
+
+    footer a { color: var(--link); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+    .source-link { display: block; margin-top: 0.75rem; font-size: 0.7rem; }
+
+    /* ── Notice (unsupported browser / load error) ───────────────────────── */
+    .notice {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 1.5rem 1.75rem;
+      font-size: 0.85rem;
+    }
+
+    .notice strong {
+      display: block;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.4rem;
+    }
+
+    /* ── State transition ────────────────────────────────────────────────── */
+    @media (prefers-reduced-motion: no-preference) {
+      #root { transition: opacity 0.15s; }
+      #root.fading { opacity: 0; }
+    }
+
+    /* ── Mobile ──────────────────────────────────────────────────────────── */
+    @media (max-width: 480px) {
+      body { padding: 2rem 1rem 3rem; }
+      .card, .verdict-block, .checks-block, .forge-btn { padding-left: 1.25rem; padding-right: 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="page-header">
+      <h1>OBv3 Credential Verifier</h1>
+      <p>Live browser verification — no install, no backend.</p>
+    </header>
+
+    <!-- JS renders card + verdict + checks + toggle button into this element -->
+    <div id="root">
+      <div class="verdict-block is-loading">
+        <span class="verdict-icon">○</span>
+        <span class="verdict-stamp">Loading</span>
+      </div>
+    </div>
+
+    <footer>
+      <p>
+        A <strong style="font-weight:600;color:var(--text)">Verifiable Credential</strong>
+        is a digital certificate whose authenticity any party can confirm
+        independently, without contacting the issuer.
+        The issuer's public key is published at
+        <a href="/.well-known/did.json" target="_blank" rel="noopener">/.well-known/did.json</a>
+        — anyone can fetch it to check the signature themselves.
+        The forged version fails because modifying the content invalidates the
+        original signature, and only the issuer holds the private key needed to
+        produce a valid one.
+      </p>
+      <a class="source-link" href="https://github.com/Emma10336/obv3-spike"
+         target="_blank" rel="noopener">Source → Emma10336/obv3-spike ↗</a>
+    </footer>
+  </main>
+
+  <script type="module">
+    /* ── jose v5 — loaded as a browser ES module from jsDelivr CDN ──────────
+       Handles EdDSA key import and JWT verification via the native WebCrypto
+       API. No bundler or install required on the client side.
+    ───────────────────────────────────────────────────────────────────────── */
+    import * as jose from 'https://cdn.jsdelivr.net/npm/jose@5/+esm';
+
+    const root       = document.getElementById('root');
+    const OB_CONTEXT = 'https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json';
+
+    /* ── Feature detection ───────────────────────────────────────────────── */
+    async function supportsEd25519() {
+      try {
+        await crypto.subtle.importKey(
+          'raw', new Uint8Array(32), { name: 'Ed25519' }, false, ['verify'],
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    /* ── Verification — mirrors src/verify.ts exactly ────────────────────── */
+    async function verifyCredential(jwtText) {
+      const checks = [];
+
+      // Decode header and payload without verifying the signature first,
+      // so we can populate the credential card before crypto runs.
+      let header, rawPayload;
+      try {
+        header     = jose.decodeProtectedHeader(jwtText);
+        rawPayload = jose.decodeJwt(jwtText);
+      } catch {
+        return { valid: false, payload: null, checks };
+      }
+
+      // Resolve DID document — same-origin shortcut.
+      // did:web:emma10336.github.io → https://emma10336.github.io/.well-known/did.json
+      // We're hosted on that same origin, so a root-relative path suffices.
+      let didDoc;
+      try {
+        const res = await fetch('/.well-known/did.json');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        didDoc = await res.json();
+        checks.push({ name: 'DID resolved', passed: true, detail: '/.well-known/did.json' });
+      } catch (e) {
+        checks.push({ name: 'DID resolved', passed: false, detail: e.message });
+        return { valid: false, payload: rawPayload, checks };
+      }
+
+      // Locate the verification method matching the JWT header's kid.
+      const vm = didDoc.verificationMethod?.find(m => m.id === header.kid);
+      if (!vm) {
+        checks.push({ name: 'Verification method found', passed: false, detail: `kid=${header.kid}` });
+        return { valid: false, payload: rawPayload, checks };
+      }
+      checks.push({ name: 'Verification method found', passed: true });
+
+      // Verify the EdDSA signature.
+      // jose.jwtVerify also validates nbf/exp by default.
+      let verifiedPayload;
+      try {
+        const publicKey = await jose.importJWK(vm.publicKeyJwk, 'EdDSA');
+        const { payload } = await jose.jwtVerify(jwtText, publicKey, { algorithms: ['EdDSA'] });
+        verifiedPayload = payload;
+        checks.push({ name: 'Signature valid', passed: true });
+      } catch (e) {
+        checks.push({ name: 'Signature valid', passed: false, detail: e.message });
+        return { valid: false, payload: rawPayload, checks };
+      }
+
+      // Structural checks on the verified payload.
+      const vc = verifiedPayload.vc;
+
+      checks.push({
+        name:   'type includes OpenBadgeCredential',
+        passed: Array.isArray(vc?.type) && vc.type.includes('OpenBadgeCredential'),
+      });
+
+      checks.push({
+        name:   'vc.issuer.id === iss',
+        passed: vc?.issuer?.id === verifiedPayload.iss,
+      });
+
+      checks.push({
+        name:   'OBv3 context present',
+        passed: Array.isArray(vc?.['@context']) && vc['@context'].includes(OB_CONTEXT),
+      });
+
+      const nowSec = Math.floor(Date.now() / 1000);
+      checks.push({
+        name:   'nbf not in the future',
+        passed: verifiedPayload.nbf != null && verifiedPayload.nbf <= nowSec,
+        detail: verifiedPayload.nbf
+          ? new Date(verifiedPayload.nbf * 1000).toLocaleDateString('en-GB', {
+              day: 'numeric', month: 'long', year: 'numeric',
+            })
+          : 'missing',
+      });
+
+      return { valid: checks.every(c => c.passed), payload: verifiedPayload, checks };
+    }
+
+    /* ── Rendering ───────────────────────────────────────────────────────── */
+
+    // Minimal HTML escaping — avoids XSS from credential field values.
+    const esc = v => String(v ?? '').replace(
+      /[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])
+    );
+
+    const fmtDate = iso => iso
+      ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+      : '—';
+
+    function render(result, isForged) {
+      const { valid, payload, checks } = result;
+      const vc      = payload?.vc;
+      const achieve = vc?.credentialSubject?.achievement;
+
+      const stateClass = valid ? 'is-valid' : 'is-invalid';
+
+      // Credential card — left stripe colour driven by CSS class.
+      const card = `
+        <div class="card ${stateClass}">
+          <p class="card-eyebrow">OpenBadge v3 — ${esc(isForged ? 'Forged credential' : 'Genuine credential')}</p>
+          <h2 class="card-title">${esc(achieve?.name ?? '—')}</h2>
+          <dl class="card-fields">
+            <dt>Issuer</dt> <dd>${esc(vc?.issuer?.name ?? payload?.iss ?? '—')}</dd>
+            <dt>Issued</dt> <dd>${esc(fmtDate(vc?.issuanceDate))}</dd>
+            <dt>ID</dt>     <dd class="field-id">${esc(payload?.jti ?? '—')}</dd>
+          </dl>
+        </div>`;
+
+      // Verdict — stamp style.
+      const verdict = `
+        <div class="verdict-block ${stateClass}" role="status" aria-live="polite">
+          <span class="verdict-icon">${valid ? '✓' : '✗'}</span>
+          <span class="verdict-stamp">${valid ? 'Valid' : 'Invalid'}</span>
+        </div>`;
+
+      // Check list.
+      const items = checks.map(c => `
+        <li class="check-item">
+          <span class="check-mark ${c.passed ? 'pass' : 'fail'}">${c.passed ? '✓' : '✗'}</span>
+          <span>
+            <span class="check-name">${esc(c.name)}</span>${c.detail
+              ? `<span class="check-detail"> — ${esc(c.detail)}</span>`
+              : ''}
+          </span>
+        </li>`).join('');
+
+      const checkList = `
+        <div class="checks-block">
+          <p class="checks-heading">Checks</p>
+          <ul class="check-list">${items}</ul>
+        </div>`;
+
+      // Toggle button.
+      const btn = `
+        <button class="forge-btn" id="toggle-btn">
+          ${esc(isForged ? '← Show genuine credential' : 'What happens if someone forges it?')}
+        </button>`;
+
+      root.innerHTML = card + verdict + checkList + btn;
+      document.getElementById('toggle-btn').addEventListener('click', () => runDemo(!isForged));
+    }
+
+    /* ── Main flow ───────────────────────────────────────────────────────── */
+
+    async function runDemo(isForged) {
+      // Brief opacity fade between genuine ↔ forged states.
+      root.classList.add('fading');
+      await new Promise(r => setTimeout(r, 120));
+      root.innerHTML = `
+        <div class="verdict-block is-loading">
+          <span class="verdict-icon">○</span>
+          <span class="verdict-stamp">Verifying</span>
+        </div>`;
+      root.classList.remove('fading');
+
+      try {
+        const file = isForged ? 'credential-forged.jwt' : 'credential.jwt';
+        const res  = await fetch(file);
+        if (!res.ok) throw new Error(`Could not load ${file} — HTTP ${res.status}`);
+        const jwtText = (await res.text()).trim();
+
+        const result = await verifyCredential(jwtText);
+        render(result, isForged);
+      } catch (e) {
+        root.innerHTML = `
+          <div class="notice">
+            <strong>Error</strong>${esc(e.message)}
+          </div>`;
+      }
+    }
+
+    /* ── Bootstrap ───────────────────────────────────────────────────────── */
+    (async () => {
+      if (!(await supportsEd25519())) {
+        root.innerHTML = `
+          <div class="notice">
+            <strong>Browser not supported</strong>
+            This page requires Ed25519 WebCrypto support.
+            Please try Chrome 113+, Firefox 113+, or Safari 17+.
+          </div>`;
+        return;
+      }
+
+      await runDemo(false);
+    })();
+  </script>
+</body>
+</html>
